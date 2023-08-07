@@ -1,5 +1,4 @@
-﻿using System.Text;
-using Microsoft.Data.SqlClient;
+﻿using Microsoft.Data.SqlClient;
 using Microsoft.SqlServer.Management.Common;
 using Microsoft.SqlServer.Management.Sdk.Sfc;
 using Microsoft.SqlServer.Management.Smo;
@@ -8,15 +7,14 @@ using System.Text.Json;
 namespace DbScripter;
 
 public class ScriptWriter {
-    private record sqlJson(string ScriptValue = "");
-
+    private record sqlJson(string[] Tables, string[] Functions, string[] StoredProcedures, string[] Sequences);
     public static async Task GetScriptAsync(string connString, bool isLocal, string databaseName, Stream stream) {
        
         var sqlStrings = generateScriptsToStrings(databaseName, isLocal, connString);
         await writeJsonAsync(sqlStrings, stream).ConfigureAwait(false);
 
         //-----------------------------------------------------------------------------------
-        static string[] generateScriptsToStrings(string databaseName, bool isLocal, string connString) {
+        static sqlJson generateScriptsToStrings(string databaseName, bool isLocal, string connString) {
             var scriptingOptions = new ScriptingOptions {
                 AllowSystemObjects = false,
                 ScriptOwner = false,
@@ -34,29 +32,33 @@ public class ScriptWriter {
             Console.WriteLine(header);
 
             var database = server.Databases[databaseName];
-            var generatedSql = new string[3];
             var scripter =  new Scripter(server) { Options = scriptingOptions };
 
             var tables = database.Tables.Cast<Table>()
                 .Where(tb => !tb.IsSystemObject && tb.Name != "AppliedMigrationScript")
                 .Select(t => t.Urn)
                 .ToArray();
-            generatedSql[0] = getSqlForDbObjects(tables, scripter);
+            var tableSql = getSqlForDbObjects(tables, scripter);
 
             var functions = database.UserDefinedFunctions.Cast<UserDefinedFunction>()
                 .Where(x => !x.IsSystemObject)
                 .Select(t => t.Urn)
                 .ToArray();
             scripter.Options.WithDependencies = false;
-            generatedSql[1] = getSqlForDbObjects(functions, scripter);
+            var functionSql = getSqlForDbObjects(functions, scripter);
 
             var procedures = database.StoredProcedures.Cast<StoredProcedure>()
                 .Where(x => !x.IsSystemObject)
                 .Select(x => x.Urn)
                 .ToArray();
-            generatedSql[2] = getSqlForDbObjects(procedures, scripter);
+            var storedProcedureSql = getSqlForDbObjects(procedures, scripter);
 
-            return generatedSql;
+            var sequences = database.Sequences.Cast<Sequence>()
+                .Select(x => x.Urn)
+                .ToArray();
+            var sequenceSql = getSqlForDbObjects(sequences, scripter);
+
+            return new sqlJson(tableSql, functionSql, storedProcedureSql, sequenceSql);
         }
 
         static Server createServer(bool isLocal, string connString) {
@@ -67,31 +69,32 @@ public class ScriptWriter {
             return new Server(new ServerConnection(conn));
         }
 
-        static string getSqlForDbObjects(Urn[] urns, Scripter scripter) {
+        static string[] getSqlForDbObjects(Urn[] urns, Scripter scripter) {
             var script = scripter.Script(urns);
-            var sb = new StringBuilder();
+            var result = new List<string>(script.Count);
             foreach (var line in script) {
                 if (line is null || line.StartsWith("SET")) continue;
-                sb.AppendLine(line);
+                result.Add(line);
             }
-            return sb.ToString();
+            return result.ToArray();
         }
 
-        static async Task writeJsonAsync(IEnumerable<string> sqlStrings, Stream stream) {
-            var json = JsonSerializer.Serialize(sqlStrings.Select(s => new sqlJson(s)));
+        static async Task writeJsonAsync(sqlJson sql, Stream stream) {
             await using var streamWriter = new StreamWriter(stream);
+            var json = JsonSerializer.Serialize(sql, new JsonSerializerOptions {WriteIndented = true});
             await streamWriter.WriteAsync(json).ConfigureAwait(false);
         }
     }
 
     
-    public static async Task CreatePrettyFileAsync(string filename) {
+    public static async Task CreateFormattedSqlFileAsync(string filename) {
         var stream = File.Open(filename, FileMode.Open);
         var json = await JsonDocument.ParseAsync(stream);
-        var pretty = json.Deserialize<IEnumerable<sqlJson>>(new JsonSerializerOptions { WriteIndented = true });
+        var scripts = json.Deserialize<sqlJson>(new JsonSerializerOptions { WriteIndented = true });
         await using var prettyStream = File.CreateText(filename + ".pretty");
-        foreach (var s in pretty) {
-            await prettyStream.WriteAsync(s.ScriptValue);
-        }
+        foreach(var script in  scripts.Tables) await prettyStream.WriteAsync(script);
+        foreach(var script in  scripts.Functions) await prettyStream.WriteAsync(script);
+        foreach(var script in  scripts.StoredProcedures) await prettyStream.WriteAsync(script);
+        foreach(var script in  scripts.Sequences) await prettyStream.WriteAsync(script);
     }
 }
