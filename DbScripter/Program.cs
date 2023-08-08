@@ -2,7 +2,7 @@
 
 public class Program {
     static async Task Main(string[] args) {
-        const string DB_NAME = "Billing2"; // database name  
+        const string DB_NAME = "Billing"; // database name  
 
         const string LOCAL = "(localdb)\\MSSQLLocalDB";
 
@@ -18,7 +18,7 @@ public class Program {
         fileStream.Close();
         fileStream.Dispose();
 
-        await ScriptWriter.CreatePrettyFileAsync(filename);
+        await ScriptWriter.CreateFormattedSqlFileAsync(filename);
     }
 }
     
