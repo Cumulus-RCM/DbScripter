@@ -88,11 +88,13 @@ public class ScriptWriter {
 
     
     public static async Task CreateFormattedSqlFileAsync(string filename) {
-        var stream = File.Open(filename, FileMode.Open);
-        var json = await JsonDocument.ParseAsync(stream);
-        var scripts = json.Deserialize<sqlJson>(new JsonSerializerOptions { WriteIndented = true });
+        sqlJson? scripts;
+        await using (var stream = File.Open(filename, FileMode.Open)) {
+            var json = await JsonDocument.ParseAsync(stream);
+            scripts = json.Deserialize<sqlJson>(new JsonSerializerOptions { WriteIndented = true });
+        }
         await using var prettyStream = File.CreateText(filename + ".pretty");
-        foreach(var script in  scripts.Tables) await prettyStream.WriteAsync(script);
+        foreach(var script in  scripts!.Tables) await prettyStream.WriteAsync(script);
         foreach(var script in  scripts.Functions) await prettyStream.WriteAsync(script);
         foreach(var script in  scripts.StoredProcedures) await prettyStream.WriteAsync(script);
         foreach(var script in  scripts.Sequences) await prettyStream.WriteAsync(script);

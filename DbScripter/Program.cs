@@ -9,7 +9,7 @@ public class Program {
         var azureConnString =
             "Server=tcp:cumulus-dev-db.database.windows.net,1433;Integrated Security=false;Authentication=Active Directory Interactive";
 
-        const bool IS_LOCAL = true;
+        const bool IS_LOCAL = false;
         var connString = IS_LOCAL ? LOCAL : azureConnString;
 
         var filename = @"c:\temp\db.json";
